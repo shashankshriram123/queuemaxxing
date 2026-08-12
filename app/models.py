@@ -20,14 +20,12 @@ class QueueOrder(str, Enum):
 
 
 class MessageState(str, Enum):
-    """A message's current queue lifecycle state.
-
-    Leasing will extend this enum with ``in_flight`` and ``completed`` states
-    in a later step.
-    """
+    """A message's current queue lifecycle state."""
 
     DELAYED = "delayed"
     READY = "ready"
+    IN_FLIGHT = "in_flight"
+    COMPLETED = "completed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,3 +59,8 @@ class Message:
     created_at: datetime
     available_at: datetime
     state: MessageState
+    delivery_attempts: int = 0
+    leased_by: str | None = None
+    receipt_handle: str | None = None
+    lease_expires_at: datetime | None = None
+    completed_at: datetime | None = None
