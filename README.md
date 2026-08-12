@@ -20,10 +20,17 @@ Open <http://localhost:8000>. API docs are at <http://localhost:8000/docs>.
 - Run the guided scenarios, including lease expiration and redelivery.
 - Restart the server and confirm the WAL restores queue state.
 
+## Additional questions 
+
 1. How do you handle replayed messages?
 - the queue has at least once delivery where if a worker failes to ACK before the lease runs out the msg becomes ready to resent. Each message keeps track of its own delivery attempts and consumers use the msg id as a key to avoid processing duplicates.
+
 2.  How would you refactor the queue into Pub/Sub?
 - By adding topics and subscriptions. Producesr would publish msgs to a topic, and subscriptions would maintain state (delivery, ACK position). Each subscriber would have its own copy of the msg rather than a shared one.
 
-3. Monitoring and alerting, Encryption (learned about a new algorithm that encrypts packets using the pattern a knight moves around the board in chess)
-4. This implementation doesn't require any extra services works straight out the repo, its useful for local development. If you arn't running production workflows/loads you should use this
+3. If you had more time, what other features would you add?
+- Monitoring and alerting, Encryption (learned about a new algorithm that encrypts packets using the pattern a knight moves around the board in 
+chess)
+
+4. Why would users choose your queue over incumbents like Amazon SQS, RabbitMQ or Apache Pulsar?
+- This implementation doesn't require any extra services works straight out the repo, its useful for local development. If you arn't running production workflows/loads you should use this
