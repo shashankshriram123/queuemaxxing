@@ -58,8 +58,21 @@ If your `python3` command already points to Python 3.11 or newer, you can use
 .venv/bin/python run.py
 ```
 
-Open <http://localhost:8000> for the placeholder interface or
-<http://localhost:8000/health> for the health check.
+The server deliberately runs as one process because one process owns the WAL.
+Set `QUEUEMAXXING_DATA_DIR`, `QUEUEMAXXING_HOST`, or `QUEUEMAXXING_PORT` to
+override the default `data/`, `127.0.0.1`, and `8000` values.
+
+Open <http://localhost:8000> for the placeholder interface,
+<http://localhost:8000/health> for the health check, or
+<http://localhost:8000/docs> for the interactive API documentation.
+
+## HTTP API
+
+The `/api` endpoints expose durable queue configuration, enqueue, receive,
+ACK/NACK, state-filtered message inspection, statistics, and sanitized WAL
+events. `GET /api/events` returns the newest requested window ordered from its
+oldest record to newest. Receipt handles appear only in successful receive
+responses and must be supplied back to ACK or NACK that lease.
 
 ## Run tests
 

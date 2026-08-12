@@ -174,6 +174,29 @@ class QueueEngine:
             self._commit_event_locked("message_enqueued", event_data)
             return self._snapshot_locked(self._messages[message_id])
 
+    def update_config(self, config: QueueConfig) -> QueueConfig:
+        """Atomically persist and apply new queue ordering settings."""
+
+        if not isinstance(config, QueueConfig):
+            raise TypeError("config must be a QueueConfig")
+        with self._lock:
+            if config == self.config:
+                return self.config
+            self._commit_event_locked(
+                "queue_config_updated",
+                {
+                    "order": config.order.value,
+                    "priority_enabled": config.priority_enabled,
+                },
+            )
+            return self.config
+
+    def get_config(self) -> QueueConfig:
+        """Return the immutable queue configuration under the engine lock."""
+
+        with self._lock:
+            return self.config
+
     def ready_messages(self) -> list[Message]:
         """Return all eligible messages in their processing order."""
 
@@ -212,6 +235,53 @@ class QueueEngine:
             self._refresh_time_based_states_locked(self._now())
             ordered = sorted(self._messages.values(), key=lambda item: item.sequence)
             return [self._snapshot_locked(message) for message in ordered]
+
+    def statistics(self) -> dict[str, int]:
+        """Return an atomic snapshot of public queue statistics."""
+
+        with self._lock:
+            self._refresh_time_based_states_locked(self._now())
+            states = {state: 0 for state in MessageState}
+            workers: set[str] = set()
+            total_attempts = 0
+            redeliveries = 0
+            for message in self._messages.values():
+                states[message.state] += 1
+                total_attempts += message.delivery_attempts
+                redeliveries += max(0, message.delivery_attempts - 1)
+                if (
+                    message.state is MessageState.IN_FLIGHT
+                    and message.leased_by is not None
+                ):
+                    workers.add(message.leased_by)
+            return {
+                "total": len(self._messages),
+                "delayed": states[MessageState.DELAYED],
+                "ready": states[MessageState.READY],
+                "in_flight": states[MessageState.IN_FLIGHT],
+                "completed": states[MessageState.COMPLETED],
+                "total_delivery_attempts": total_attempts,
+                "redelivery_count": redeliveries,
+                "active_worker_count": len(workers),
+            }
+
+    def recent_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return oldest-to-newest sanitized metadata for the newest WAL events."""
+
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        with self._lock:
+            if self._wal is None:
+                return []
+            records = self._wal.records[-limit:]
+            return [
+                {
+                    "record_number": record.record_number,
+                    "event_type": record.event_type,
+                    "message_id": record.data.get("message_id"),
+                }
+                for record in records
+            ]
 
     def receive(
         self,
@@ -393,6 +463,17 @@ class QueueEngine:
                     priority_enabled=data["priority_enabled"],
                 )
                 self._configuration_loaded = True
+                return
+
+            if record.event_type == "queue_config_updated":
+                if not self._configuration_loaded:
+                    raise WALCorruptionError(
+                        "queue configuration was updated before initialization"
+                    )
+                self.config = QueueConfig(
+                    order=QueueOrder(data["order"]),
+                    priority_enabled=data["priority_enabled"],
+                )
                 return
 
             if not self._configuration_loaded:

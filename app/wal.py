@@ -20,6 +20,7 @@ FORMAT_VERSION: Final = 1
 EVENT_TYPES: Final = frozenset(
     {
         "queue_configured",
+        "queue_config_updated",
         "message_enqueued",
         "message_claimed",
         "message_acked",
@@ -29,6 +30,7 @@ EVENT_TYPES: Final = frozenset(
 )
 EVENT_FIELDS: Final = {
     "queue_configured": {"order", "priority_enabled"},
+    "queue_config_updated": {"order", "priority_enabled"},
     "message_enqueued": {
         "message_id",
         "payload",
@@ -157,7 +159,7 @@ def validate_event_data(event_type: str, data: object) -> dict[str, Any]:
             f"{event_type} event has missing or unknown data fields"
         )
 
-    if event_type == "queue_configured":
+    if event_type in {"queue_configured", "queue_config_updated"}:
         if data.get("order") not in {"fifo", "lifo"}:
             raise WALCorruptionError("queue configuration has an invalid order")
         if type(data.get("priority_enabled")) is not bool:
