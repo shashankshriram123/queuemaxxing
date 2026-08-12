@@ -5,105 +5,292 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Artie QueueLab — operate and inspect a durable configurable queue."
+      content="QueueMaxxing — operate and inspect a durable configurable queue."
     />
-    <title>Artie QueueLab</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-    <script src="/static/app.js" defer></script>
+    <title>QueueMaxxing · Durable queue console</title>
+    <link rel="stylesheet" href="static/styles.css" />
+    <script src="static/app.js" defer></script>
   </head>
-  <body>
-    <header class="app-header">
-      <div>
-        <p class="eyebrow">QUEUEMAXXING / CONTROL ROOM</p>
-        <h1>Artie QueueLab</h1>
-        <p class="subtitle">Durable configurable queue</p>
-      </div>
-      <div id="server-status" class="server-status offline" role="status" aria-live="polite">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span id="server-status-text">Connecting…</span>
+  <body data-connection="connecting">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="QueueMaxxing home">
+        <span class="brand-mark" aria-hidden="true">Q</span>
+        <span>
+          <strong>QueueMaxxing</strong>
+          <small>Durable queue operations console</small>
+        </span>
+      </a>
+
+      <div class="topbar-actions">
+        <a class="docs-link" href="/docs">API docs <span aria-hidden="true">↗</span></a>
+        <div id="server-status" class="server-status connecting" role="status" aria-live="polite">
+          <span class="status-pulse" aria-hidden="true"></span>
+          <span id="server-status-text">Connecting</span>
+        </div>
       </div>
     </header>
 
-    <main class="app-shell">
-      <section class="stats-grid" aria-label="Queue statistics">
-        <article class="stat-card delayed"><span>Delayed</span><strong id="stat-delayed">0</strong></article>
-        <article class="stat-card ready"><span>Ready</span><strong id="stat-ready">0</strong></article>
-        <article class="stat-card in-flight"><span>In flight</span><strong id="stat-in-flight">0</strong></article>
-        <article class="stat-card completed"><span>Completed</span><strong id="stat-completed">0</strong></article>
-        <article class="stat-card"><span>Redeliveries</span><strong id="stat-redeliveries">0</strong></article>
+    <div id="connection-banner" class="connection-banner" role="alert" hidden>
+      <strong>Queue connection lost.</strong>
+      <span>Live data is paused. Controls will return when the API reconnects.</span>
+    </div>
+
+    <main id="dashboard" class="dashboard" aria-busy="true">
+      <section class="metrics-strip" aria-label="Live queue metrics">
+        <article class="metric total">
+          <span class="metric-icon" aria-hidden="true">∑</span>
+          <span><small>Total</small><strong id="stat-total">—</strong></span>
+        </article>
+        <article class="metric delayed">
+          <span class="metric-icon" aria-hidden="true">◷</span>
+          <span><small>Delayed</small><strong id="stat-delayed">—</strong></span>
+        </article>
+        <article class="metric ready">
+          <span class="metric-icon" aria-hidden="true">→</span>
+          <span><small>Ready</small><strong id="stat-ready">—</strong></span>
+        </article>
+        <article class="metric in-flight">
+          <span class="metric-icon" aria-hidden="true">↗</span>
+          <span><small>In flight</small><strong id="stat-in-flight">—</strong></span>
+        </article>
+        <article class="metric completed">
+          <span class="metric-icon" aria-hidden="true">✓</span>
+          <span><small>Completed</small><strong id="stat-completed">—</strong></span>
+        </article>
+        <article class="metric redelivery">
+          <span class="metric-icon" aria-hidden="true">↻</span>
+          <span><small>Redeliveries</small><strong id="stat-redeliveries">—</strong></span>
+        </article>
       </section>
 
-      <section class="control-grid" aria-label="Queue controls">
-        <form id="config-form" class="panel compact-panel">
-          <div class="panel-heading">
-            <div><p class="section-kicker">QUEUE MODE</p><h2>Configuration</h2></div>
-            <span class="durable-tag">WAL-backed</span>
+      <section class="control-deck" aria-label="Queue controls">
+        <form id="enqueue-form" class="control-card producer-card">
+          <div class="card-heading">
+            <div>
+              <p class="section-label">01 / PRODUCER</p>
+          <h2>Generate queue traffic</h2>
+            </div>
+            <span class="card-chip">POST /messages</span>
           </div>
-          <label for="queue-order">Processing order</label>
-          <select id="queue-order" name="order">
-            <option value="fifo">FIFO — oldest first</option>
-            <option value="lifo">LIFO — newest first</option>
-          </select>
-          <label class="toggle-row" for="priority-enabled">
-            <span><strong>Priority ordering</strong><small>Higher numbers run first</small></span>
-            <input id="priority-enabled" name="priority_enabled" type="checkbox" />
-          </label>
-          <button class="button primary" type="submit">Apply configuration</button>
-        </form>
 
-        <form id="enqueue-form" class="panel">
-          <div class="panel-heading">
-            <div><p class="section-kicker">PRODUCER</p><h2>Enqueue message</h2></div>
+          <div class="example-row" aria-label="Load an example payload">
+            <span>Load example</span>
+            <button class="example-button" type="button" data-example="standard">CDC event</button>
+            <button class="example-button" type="button" data-example="priority">Priority</button>
+            <button class="example-button" type="button" data-example="delayed">Delayed</button>
           </div>
+
           <label for="payload-editor">JSON payload</label>
-          <textarea id="payload-editor" name="payload" rows="6" spellcheck="false">{
+          <textarea id="payload-editor" name="payload" rows="4" spellcheck="false">{
   "event": "order.updated",
   "order_id": 104,
   "status": "shipped"
 }</textarea>
-          <div class="field-pair">
-            <div><label for="message-priority">Priority</label><input id="message-priority" type="number" step="1" value="5" /></div>
-            <div><label for="message-delay">Delay (seconds)</label><input id="message-delay" type="number" min="0" step="0.5" value="0" /></div>
+
+          <div class="composer-fields">
+            <div>
+              <label for="message-priority">Priority</label>
+              <input id="message-priority" type="number" step="1" value="5" />
+            </div>
+            <div>
+              <label for="message-delay">Delay</label>
+              <div class="input-suffix">
+                <input id="message-delay" type="number" min="0" step="0.5" value="0" />
+                <span>sec</span>
+              </div>
+            </div>
+            <div>
+              <label for="burst-size">Burst size</label>
+              <input id="burst-size" type="number" min="2" max="100" step="1" value="25" />
+            </div>
           </div>
-          <button class="button primary" type="submit">Enqueue message</button>
+          <div class="producer-actions">
+            <button class="button secondary" type="submit" data-requires-online>
+              <span>Send one</span><span aria-hidden="true">→</span>
+            </button>
+            <button id="send-burst" class="button primary" type="button" data-requires-online>
+              <span>Send burst</span><span aria-hidden="true">⚡</span>
+            </button>
+          </div>
+          <div id="burst-status" class="operation-status" role="status" aria-live="polite">Ready to send concurrent requests.</div>
         </form>
 
-        <form id="consumer-form" class="panel">
-          <div class="panel-heading">
-            <div><p class="section-kicker">CONSUMER</p><h2>Manual worker</h2></div>
+        <form id="config-form" class="control-card config-card">
+          <div class="card-heading">
+            <div>
+              <p class="section-label">02 / POLICY</p>
+              <h2>Ordering rules</h2>
+            </div>
+            <span class="durable-chip"><span aria-hidden="true">●</span> WAL-backed</span>
           </div>
-          <div class="field-pair">
-            <div><label for="worker-id">Worker ID</label><input id="worker-id" type="text" value="browser-worker" /></div>
-            <div><label for="visibility-timeout">Visibility timeout</label><input id="visibility-timeout" type="number" min="0.1" step="0.1" value="15" /></div>
+
+          <label for="queue-order">Processing order</label>
+          <select id="queue-order" name="order">
+            <option value="fifo">FIFO · oldest first</option>
+            <option value="lifo">LIFO · newest first</option>
+          </select>
+
+          <label class="switch-row" for="priority-enabled">
+            <span>
+              <strong>Priority ordering</strong>
+              <small>Higher values are leased first</small>
+            </span>
+            <input id="priority-enabled" name="priority_enabled" type="checkbox" />
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+
+          <div class="policy-footer">
+            <span id="config-summary" class="policy-summary">Loading policy…</span>
+            <button class="button secondary compact" type="submit" data-requires-online>Apply</button>
           </div>
-          <button class="button dark" type="submit">Receive next message</button>
-          <p class="helper-text">Receipt handles live only in this tab. Refreshing forgets them; unacknowledged work safely returns when its lease expires.</p>
-          <div id="current-lease" class="current-lease" aria-live="polite">No browser-held lease.</div>
+        </form>
+
+        <form id="consumer-form" class="control-card consumer-card">
+          <div class="card-heading">
+            <div>
+              <p class="section-label">03 / WORKERS</p>
+              <h2>Simulated worker pool</h2>
+            </div>
+            <span class="worker-chip"><span id="stat-active-workers">—</span> active</span>
+          </div>
+
+          <div class="worker-fields">
+            <div>
+              <label for="worker-count">Workers</label>
+              <input id="worker-count" type="number" min="1" max="12" step="1" value="3" />
+            </div>
+            <div>
+              <label for="visibility-timeout">Visibility</label>
+              <div class="input-suffix">
+                <input id="visibility-timeout" type="number" min="0.1" step="0.1" value="15" />
+                <span>sec</span>
+              </div>
+            </div>
+            <div>
+              <label for="processing-time">Process time</label>
+              <div class="input-suffix">
+                <input id="processing-time" type="number" min="0" max="30" step="0.1" value="0.5" />
+                <span>sec</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="worker-actions">
+            <button id="start-workers" class="button dark" type="button" data-requires-online>
+              <span>Start workers</span><span aria-hidden="true">▶</span>
+            </button>
+            <button id="stop-workers" class="button secondary" type="button" disabled>
+              <span>Stop</span><span aria-hidden="true">■</span>
+            </button>
+          </div>
+          <button class="manual-claim" type="submit" data-requires-online>Claim one manually</button>
+          <div id="current-lease" class="lease-status" aria-live="polite">
+            <span class="lease-dot" aria-hidden="true"></span>
+            <span id="worker-pool-status">Worker pool stopped</span>
+          </div>
+          <div id="worker-activity" class="worker-activity" aria-live="polite"></div>
+          <p class="helper-text">Workers call receive and ACK through the real API. Manual receipts stay only in this tab; expired leases safely return to the queue.</p>
         </form>
       </section>
 
-      <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
-
-      <section class="queue-section" aria-labelledby="queue-heading">
-        <div class="section-heading">
-          <div><p class="section-kicker">LIVE STATE</p><h2 id="queue-heading">Message pipeline</h2></div>
-          <p id="last-updated">Waiting for first sync…</p>
+      <section class="scenario-strip" aria-labelledby="scenario-heading">
+        <div class="scenario-intro">
+          <p class="section-label">REAL API PLAYBOOKS</p>
+          <h2 id="scenario-heading">Interactive scenarios</h2>
+          <p>Each playbook performs real queue operations.</p>
         </div>
+        <button class="scenario-card flash" type="button" data-scenario="flash" data-requires-online>
+          <span class="scenario-dot" aria-hidden="true"></span><span><strong>Flash sale</strong><small>40-message concurrent burst</small></span><span aria-hidden="true">→</span>
+        </button>
+        <button class="scenario-card vip" type="button" data-scenario="vip" data-requires-online>
+          <span class="scenario-dot" aria-hidden="true"></span><span><strong>VIP priority</strong><small>Priority ordering under load</small></span><span aria-hidden="true">→</span>
+        </button>
+        <button class="scenario-card backfill" type="button" data-scenario="backfill" data-requires-online>
+          <span class="scenario-dot" aria-hidden="true"></span><span><strong>Delayed backfill</strong><small>20 jobs become ready later</small></span><span aria-hidden="true">→</span>
+        </button>
+        <button class="scenario-card failure" type="button" data-scenario="failure" data-requires-online>
+          <span class="scenario-dot" aria-hidden="true"></span><span><strong>Worker failure</strong><small>Let a real lease expire</small></span><span aria-hidden="true">→</span>
+        </button>
+      </section>
+
+      <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
+
+      <section class="pipeline" aria-labelledby="queue-heading">
+        <div class="pipeline-heading">
+          <div>
+            <p class="section-label">LIVE DATA PLANE</p>
+            <h2 id="queue-heading">Message pipeline</h2>
+          </div>
+          <div class="sync-meta">
+            <span id="config-badge" class="config-badge">FIFO · standard</span>
+            <span id="last-updated">Waiting for first sync…</span>
+          </div>
+        </div>
+
         <div class="lane-grid">
-          <section class="lane" data-state="delayed"><header><span class="state-badge delayed">Delayed</span><span id="lane-count-delayed">0</span></header><div id="lane-delayed" class="lane-content"></div></section>
-          <section class="lane" data-state="ready"><header><span class="state-badge ready">Ready</span><span id="lane-count-ready">0</span></header><div id="lane-ready" class="lane-content"></div></section>
-          <section class="lane" data-state="in_flight"><header><span class="state-badge in-flight">In flight</span><span id="lane-count-in-flight">0</span></header><div id="lane-in-flight" class="lane-content"></div></section>
-          <section class="lane" data-state="completed"><header><span class="state-badge completed">Completed</span><span id="lane-count-completed">0</span></header><div id="lane-completed" class="lane-content"></div></section>
+          <section class="lane delayed" data-state="delayed" aria-labelledby="lane-title-delayed">
+            <header>
+              <span class="lane-index">01</span>
+              <div><h3 id="lane-title-delayed">Delayed</h3><p>Waiting for availability</p></div>
+              <strong id="lane-count-delayed">—</strong>
+            </header>
+            <div id="lane-delayed" class="lane-content" aria-live="polite">
+              <div class="lane-placeholder loading"><span></span><span></span><span></span></div>
+            </div>
+          </section>
+
+          <section class="lane ready" data-state="ready" aria-labelledby="lane-title-ready">
+            <header>
+              <span class="lane-index">02</span>
+              <div><h3 id="lane-title-ready">Ready</h3><p>Eligible for delivery</p></div>
+              <strong id="lane-count-ready">—</strong>
+            </header>
+            <div id="lane-ready" class="lane-content" aria-live="polite">
+              <div class="lane-placeholder loading"><span></span><span></span><span></span></div>
+            </div>
+          </section>
+
+          <section class="lane in-flight" data-state="in_flight" aria-labelledby="lane-title-in-flight">
+            <header>
+              <span class="lane-index">03</span>
+              <div><h3 id="lane-title-in-flight">In flight</h3><p>Leased by a worker</p></div>
+              <strong id="lane-count-in-flight">—</strong>
+            </header>
+            <div id="lane-in-flight" class="lane-content" aria-live="polite">
+              <div class="lane-placeholder loading"><span></span><span></span><span></span></div>
+            </div>
+          </section>
+
+          <section class="lane completed" data-state="completed" aria-labelledby="lane-title-completed">
+            <header>
+              <span class="lane-index">04</span>
+              <div><h3 id="lane-title-completed">Completed</h3><p>Durably acknowledged</p></div>
+              <strong id="lane-count-completed">—</strong>
+            </header>
+            <div id="lane-completed" class="lane-content" aria-live="polite">
+              <div class="lane-placeholder loading"><span></span><span></span><span></span></div>
+            </div>
+          </section>
         </div>
       </section>
 
-      <section id="event-panel" class="panel event-panel" aria-labelledby="event-heading">
-        <div class="panel-heading">
-          <div><p class="section-kicker">UNDER THE HOOD</p><h2 id="event-heading">Recent WAL events</h2></div>
-          <code>oldest → newest</code>
+      <details id="event-panel" class="event-drawer">
+        <summary>
+          <span class="drawer-icon" aria-hidden="true">⌁</span>
+          <span><strong>Under the Hood</strong><small>Sanitized write-ahead log</small></span>
+          <span id="event-count" class="event-count">— events</span>
+          <span class="drawer-action">Inspect WAL <span aria-hidden="true">⌄</span></span>
+        </summary>
+        <div class="event-table" role="region" aria-label="Recent WAL events" tabindex="0">
+          <div class="event-table-header" aria-hidden="true"><span>Record</span><span>Event</span><span>Message</span></div>
+          <ol id="event-list" class="event-list"></ol>
         </div>
-        <ol id="event-list" class="event-list"></ol>
-      </section>
+      </details>
     </main>
+
+    <footer>
+      <span>Independent engineering demo · Not affiliated with Artie</span>
+      <span>FastAPI · append-only WAL · single-process concurrency</span>
+    </footer>
   </body>
 </html>
