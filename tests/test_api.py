@@ -357,6 +357,31 @@ def test_stats_reflect_real_activity(
     }
 
 
+def test_clear_completed_endpoint_removes_only_completed_messages(
+    client: TestClient,
+) -> None:
+    completed = enqueue(client, "completed")
+    retained = enqueue(client, "ready")
+    lease = receive(client)
+    assert lease is not None
+    assert lease["id"] == completed["id"]
+    ack = client.post(
+        f"/api/messages/{completed['id']}/ack",
+        json={"receipt_handle": lease["receipt_handle"]},
+    )
+    assert ack.status_code == 200
+
+    response = client.delete("/api/messages/completed")
+
+    assert response.status_code == 200
+    assert response.json() == {"cleared": 1}
+    assert [message["id"] for message in client.get("/api/messages").json()] == [
+        retained["id"]
+    ]
+    assert client.get("/api/stats").json()["completed"] == 0
+    assert client.delete("/api/messages/completed").json() == {"cleared": 0}
+
+
 def test_events_reflect_activity_and_never_expose_receipts(client: TestClient) -> None:
     message = enqueue(client, "job")
     lease = receive(client)

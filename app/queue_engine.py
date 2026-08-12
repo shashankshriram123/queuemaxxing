@@ -332,6 +332,27 @@ class QueueEngine:
             )
             return self._snapshot_locked(message)
 
+    def clear_completed(self) -> int:
+        """Durably remove every message completed before this atomic transition."""
+
+        with self._lock:
+            completed = sorted(
+                (
+                    message
+                    for message in self._messages.values()
+                    if message.state is MessageState.COMPLETED
+                ),
+                key=lambda message: message.sequence,
+            )
+            if not completed:
+                return 0
+            message_ids = [message.id for message in completed]
+            self._commit_event_locked(
+                "completed_messages_cleared",
+                {"message_ids": message_ids},
+            )
+            return len(message_ids)
+
     def nack(
         self,
         message_id: str,
@@ -480,6 +501,23 @@ class QueueEngine:
                 raise WALCorruptionError(
                     "queue transition appeared before queue configuration"
                 )
+
+            if record.event_type == "completed_messages_cleared":
+                message_ids = data["message_ids"]
+                completed_messages = [
+                    self._message_for_replay_locked(message_id)
+                    for message_id in message_ids
+                ]
+                if any(
+                    message.state is not MessageState.COMPLETED
+                    for message in completed_messages
+                ):
+                    raise WALCorruptionError(
+                        "completed_messages_cleared referenced an incomplete message"
+                    )
+                for message_id in message_ids:
+                    del self._messages[message_id]
+                return
 
             message_id = data["message_id"]
             if record.event_type == "message_enqueued":

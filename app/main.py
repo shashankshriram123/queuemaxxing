@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api_models import (
     AckRequest,
+    ClearCompletedResponse,
     ConfigResponse,
     ConfigUpdateRequest,
     EnqueueRequest,
@@ -70,7 +71,7 @@ def create_app(
 
     application = FastAPI(
         title="Queuemaxxing",
-        version="0.6.0",
+        version="0.7.0",
         description="A durable, configurable HTTP queue.",
         lifespan=lifespan,
     )
@@ -220,6 +221,13 @@ def _register_routes(application: FastAPI) -> None:
         if state is not None:
             messages = [message for message in messages if message.state is state]
         return [MessageResponse.from_message(message) for message in messages]
+
+    @application.delete(
+        "/api/messages/completed",
+        response_model=ClearCompletedResponse,
+    )
+    async def clear_completed(queue: EngineDependency) -> ClearCompletedResponse:
+        return ClearCompletedResponse(cleared=queue.clear_completed())
 
     @application.get("/api/stats", response_model=StatsResponse)
     async def get_stats(queue: EngineDependency) -> StatsResponse:

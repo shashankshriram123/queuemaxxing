@@ -116,6 +116,27 @@ def test_completed_message_is_never_received_again(engine: QueueEngine) -> None:
     assert engine.receive("worker-2") is None
 
 
+def test_clear_completed_removes_only_completed_messages(engine: QueueEngine) -> None:
+    first = engine.enqueue({"name": "done-1"})
+    first_lease = require_message(engine.receive("worker-1"))
+    assert first_lease.receipt_handle is not None
+    engine.ack(first.id, first_lease.receipt_handle)
+
+    second = engine.enqueue({"name": "done-2"})
+    second_lease = require_message(engine.receive("worker-2"))
+    assert second_lease.receipt_handle is not None
+    engine.ack(second.id, second_lease.receipt_handle)
+    ready = engine.enqueue({"name": "keep"})
+
+    assert engine.clear_completed() == 2
+    assert [message.id for message in engine.messages()] == [ready.id]
+    with pytest.raises(MessageNotFoundError):
+        engine.get_message(first.id)
+    with pytest.raises(MessageNotFoundError):
+        engine.get_message(second.id)
+    assert engine.clear_completed() == 0
+
+
 def test_nack_without_delay_returns_message_to_ready(engine: QueueEngine) -> None:
     message = engine.enqueue({"name": "job"})
     received = require_message(engine.receive("worker-1"))

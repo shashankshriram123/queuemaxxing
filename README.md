@@ -1,81 +1,29 @@
 # Queuemaxxing
 
-Queuemaxxing is a FastAPI service that will power the Artie QueueLab durable
-queue demo. Step 1 provides the application scaffold, health endpoint, and a
-minimal placeholder page.
+## Run it
 
-## Concurrency boundary
-
-Each `QueueEngine` protects its state with a reentrant lock. Many producer and
-consumer threads—and concurrent HTTP clients served by one Python process—can
-use the same engine safely. Public reads return deep snapshots so callers cannot
-mutate stored messages or nested payloads without going through the engine.
-
-Multiple independent server processes cannot share one in-memory engine. A
-durable engine enforces this boundary by giving one process exclusive ownership
-of its WAL for the engine's lifetime.
-
-## Durability and recovery
-
-`QueueEngine.open_durable()` stores configuration, enqueue, claim, ACK, NACK,
-and lease-expiration events in a local append-only write-ahead log. Each event
-is one versioned JSON line with a consecutive record number and a SHA-256
-checksum over its canonical JSON body.
-
-The engine appends each transition, flushes Python's file buffer, and calls
-`fsync` before changing memory. A failed write therefore leaves the in-memory
-transition unapplied, poisons the WAL against later writes, and returns an
-error. On restart, records are checksum-validated and replayed in order to
-restore messages, ordering configuration, sequences, delivery attempts, and
-active leases. Expired leases are durably requeued during recovery; delayed
-eligibility is derived from the stored availability timestamp.
-
-A non-newline-terminated final record is treated as a crash-torn tail and
-truncated before recovery. Malformed, unsupported, nonconsecutive, or
-checksum-invalid complete records stop recovery as corruption. The WAL holds a
-non-blocking OS file lock for its entire lifetime, so one server process owns a
-queue data file at a time. WAL compaction, snapshots, and multi-process or
-multi-node operation are future work.
-
-## Requirements
-
-- Python 3.11 or newer
-
-## Set up
+Requires Python 3.11 or newer.
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-If your `python3` command already points to Python 3.11 or newer, you can use
-`python3 -m venv .venv` instead.
-
-## Run the server
-
-```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python run.py
 ```
 
-The server deliberately runs as one process because one process owns the WAL.
-Set `QUEUEMAXXING_DATA_DIR`, `QUEUEMAXXING_HOST`, or `QUEUEMAXXING_PORT` to
-override the default `data/`, `127.0.0.1`, and `8000` values.
+Open <http://localhost:8000>. API docs are at <http://localhost:8000/docs>.
 
-Open <http://localhost:8000> for the placeholder interface,
-<http://localhost:8000/health> for the health check, or
-<http://localhost:8000/docs> for the interactive API documentation.
+## What to look for
 
-## HTTP API
+- Send one message or a concurrent burst.
+- Try FIFO/LIFO, priority, and delayed messages.
+- Start simulated workers and watch messages move through the pipeline.
+- Run the guided scenarios, including lease expiration and redelivery.
+- Restart the server and confirm the WAL restores queue state.
 
-The `/api` endpoints expose durable queue configuration, enqueue, receive,
-ACK/NACK, state-filtered message inspection, statistics, and sanitized WAL
-events. `GET /api/events` returns the newest requested window ordered from its
-oldest record to newest. Receipt handles appear only in successful receive
-responses and must be supplied back to ACK or NACK that lease.
+1. How do you handle replayed messages?
+- the queue has at least once delivery where if a worker failes to ACK before the lease runs out the msg becomes ready to resent. Each message keeps track of its own delivery attempts and consumers use the msg id as a key to avoid processing duplicates.
+2.  How would you refactor the queue into Pub/Sub?
+- By adding topics and subscriptions. Producesr would publish msgs to a topic, and subscriptions would maintain state (delivery, ACK position). Each subscriber would have its own copy of the msg rather than a shared one.
 
-## Run tests
-
-```bash
-.venv/bin/python -m pytest
-```
+3. Monitoring and alerting, Encryption (learned about a new algorithm that encrypts packets using the pattern a knight moves around the board in chess)
+4. This implementation doesn't require any extra services works straight out the repo, its useful for local development. If you arn't running production workflows/loads you should use this

@@ -3,10 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="QueueMaxxing — operate and inspect a durable configurable queue."
-    />
+    <meta name="description" content="QueueMaxxing — operate and inspect a durable configurable queue." />
     <title>QueueMaxxing · Durable queue console</title>
     <link rel="stylesheet" href="static/styles.css" />
     <script src="static/app.js" defer></script>
@@ -14,10 +11,9 @@
   <body data-connection="connecting">
     <header class="topbar">
       <a class="brand" href="/" aria-label="QueueMaxxing home">
-        <span class="brand-mark" aria-hidden="true">Q</span>
         <span>
           <strong>QueueMaxxing</strong>
-          <small>Durable queue operations console</small>
+          <small>Durable queue lab</small>
         </span>
       </a>
 
@@ -36,181 +32,186 @@
     </div>
 
     <main id="dashboard" class="dashboard" aria-busy="true">
-      <section class="metrics-strip" aria-label="Live queue metrics">
-        <article class="metric total">
-          <span class="metric-icon" aria-hidden="true">∑</span>
-          <span><small>Total</small><strong id="stat-total">—</strong></span>
-        </article>
-        <article class="metric delayed">
-          <span class="metric-icon" aria-hidden="true">◷</span>
-          <span><small>Delayed</small><strong id="stat-delayed">—</strong></span>
-        </article>
-        <article class="metric ready">
-          <span class="metric-icon" aria-hidden="true">→</span>
-          <span><small>Ready</small><strong id="stat-ready">—</strong></span>
-        </article>
-        <article class="metric in-flight">
-          <span class="metric-icon" aria-hidden="true">↗</span>
-          <span><small>In flight</small><strong id="stat-in-flight">—</strong></span>
-        </article>
-        <article class="metric completed">
-          <span class="metric-icon" aria-hidden="true">✓</span>
-          <span><small>Completed</small><strong id="stat-completed">—</strong></span>
-        </article>
-        <article class="metric redelivery">
-          <span class="metric-icon" aria-hidden="true">↻</span>
-          <span><small>Redeliveries</small><strong id="stat-redeliveries">—</strong></span>
-        </article>
+      <section class="status-strip" aria-label="Live queue metrics">
+        <div class="status-item total"><small>Total</small><strong id="stat-total">—</strong></div>
+        <div class="status-item delayed"><small>Delayed</small><strong id="stat-delayed">—</strong></div>
+        <div class="status-item ready"><small>Ready</small><strong id="stat-ready">—</strong></div>
+        <div class="status-item in-flight"><small>In flight</small><strong id="stat-in-flight">—</strong></div>
+        <div class="status-item completed"><small>Completed</small><strong id="stat-completed">—</strong></div>
+        <div class="status-item redelivery"><small>Redeliveries</small><strong id="stat-redeliveries">—</strong></div>
       </section>
 
-      <section class="control-deck" aria-label="Queue controls">
-        <form id="enqueue-form" class="control-card producer-card">
-          <div class="card-heading">
+      <nav class="workflow-steps" aria-label="Queue test workflow">
+        <span class="done" data-workflow-step="1"><b>1</b> Configure</span>
+        <span class="current" data-workflow-step="2" aria-current="step"><b>2</b> Send traffic</span>
+        <span data-workflow-step="3"><b>3</b> Run workers</span>
+        <span data-workflow-step="4"><b>4</b> Observe</span>
+      </nav>
+
+      <section class="operations-workspace" aria-label="Queue operations">
+        <div class="composer-pane">
+          <div class="section-heading">
             <div>
-              <p class="section-label">01 / PRODUCER</p>
-          <h2>Generate queue traffic</h2>
+              <p class="eyebrow">Producer</p>
+              <h1>Send queue traffic</h1>
             </div>
-            <span class="card-chip">POST /messages</span>
+            <div class="mode-tabs" role="tablist" aria-label="Traffic mode">
+              <button id="mode-single" type="button" role="tab" aria-selected="false" aria-controls="enqueue-form" data-composer-mode="single">Single</button>
+              <button id="mode-burst" class="active" type="button" role="tab" aria-selected="true" aria-controls="enqueue-form" data-composer-mode="burst">Burst</button>
+            </div>
           </div>
 
-          <div class="example-row" aria-label="Load an example payload">
-            <span>Load example</span>
-            <button class="example-button" type="button" data-example="standard">CDC event</button>
-            <button class="example-button" type="button" data-example="priority">Priority</button>
-            <button class="example-button" type="button" data-example="delayed">Delayed</button>
-          </div>
+          <form id="enqueue-form">
+            <div class="example-picker">
+              <label for="payload-example">Example</label>
+              <select id="payload-example">
+                <option value="standard">CDC order event</option>
+                <option value="priority">Priority inventory event</option>
+                <option value="delayed">Delayed sync event</option>
+              </select>
+              <button id="load-example" class="quiet-button" type="button">Load</button>
+            </div>
 
-          <label for="payload-editor">JSON payload</label>
-          <textarea id="payload-editor" name="payload" rows="4" spellcheck="false">{
+            <label for="payload-editor">JSON payload</label>
+            <textarea id="payload-editor" name="payload" rows="5" spellcheck="false">{
   "event": "order.updated",
   "order_id": 104,
   "status": "shipped"
 }</textarea>
 
-          <div class="composer-fields">
-            <div>
-              <label for="message-priority">Priority</label>
-              <input id="message-priority" type="number" step="1" value="5" />
-            </div>
-            <div>
-              <label for="message-delay">Delay</label>
-              <div class="input-suffix">
-                <input id="message-delay" type="number" min="0" step="0.5" value="0" />
-                <span>sec</span>
+            <details class="settings-disclosure delivery-options">
+              <summary>Delivery options <span>Priority 5 · No delay</span></summary>
+              <div class="disclosure-body two-fields">
+                <div>
+                  <label for="message-priority">Priority</label>
+                  <input id="message-priority" type="number" step="1" value="5" />
+                </div>
+                <div>
+                  <label for="message-delay">Delay</label>
+                  <div class="input-suffix">
+                    <input id="message-delay" type="number" min="0" step="0.5" value="0" />
+                    <span>sec</span>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <label for="burst-size">Burst size</label>
-              <input id="burst-size" type="number" min="2" max="100" step="1" value="25" />
-            </div>
-          </div>
-          <div class="producer-actions">
-            <button class="button secondary" type="submit" data-requires-online>
-              <span>Send one</span><span aria-hidden="true">→</span>
-            </button>
-            <button id="send-burst" class="button primary" type="button" data-requires-online>
-              <span>Send burst</span><span aria-hidden="true">⚡</span>
-            </button>
-          </div>
-          <div id="burst-status" class="operation-status" role="status" aria-live="polite">Ready to send concurrent requests.</div>
-        </form>
+            </details>
 
-        <form id="config-form" class="control-card config-card">
-          <div class="card-heading">
-            <div>
-              <p class="section-label">02 / POLICY</p>
-              <h2>Ordering rules</h2>
-            </div>
-            <span class="durable-chip"><span aria-hidden="true">●</span> WAL-backed</span>
-          </div>
-
-          <label for="queue-order">Processing order</label>
-          <select id="queue-order" name="order">
-            <option value="fifo">FIFO · oldest first</option>
-            <option value="lifo">LIFO · newest first</option>
-          </select>
-
-          <label class="switch-row" for="priority-enabled">
-            <span>
-              <strong>Priority ordering</strong>
-              <small>Higher values are leased first</small>
-            </span>
-            <input id="priority-enabled" name="priority_enabled" type="checkbox" />
-            <span class="switch" aria-hidden="true"></span>
-          </label>
-
-          <div class="policy-footer">
-            <span id="config-summary" class="policy-summary">Loading policy…</span>
-            <button class="button secondary compact" type="submit" data-requires-online>Apply</button>
-          </div>
-        </form>
-
-        <form id="consumer-form" class="control-card consumer-card">
-          <div class="card-heading">
-            <div>
-              <p class="section-label">03 / WORKERS</p>
-              <h2>Simulated worker pool</h2>
-            </div>
-            <span class="worker-chip"><span id="stat-active-workers">—</span> active</span>
-          </div>
-
-          <div class="worker-fields">
-            <div>
-              <label for="worker-count">Workers</label>
-              <input id="worker-count" type="number" min="1" max="12" step="1" value="3" />
-            </div>
-            <div>
-              <label for="visibility-timeout">Visibility</label>
-              <div class="input-suffix">
-                <input id="visibility-timeout" type="number" min="0.1" step="0.1" value="15" />
-                <span>sec</span>
+            <div class="composer-submit-row">
+              <div id="burst-size-field" class="burst-size-field">
+                <label for="burst-size">Requests</label>
+                <input id="burst-size" type="number" min="2" max="100" step="1" value="25" />
               </div>
+              <button id="send-one" class="button primary" type="submit" data-requires-online hidden>
+                <span>Send message</span><span aria-hidden="true">→</span>
+              </button>
+              <button id="send-burst" class="button primary" type="button" data-requires-online>
+                <span>Send 25-message burst</span><span aria-hidden="true">→</span>
+              </button>
             </div>
-            <div>
-              <label for="processing-time">Process time</label>
-              <div class="input-suffix">
-                <input id="processing-time" type="number" min="0" max="30" step="0.1" value="0.5" />
-                <span>sec</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="worker-actions">
-            <button id="start-workers" class="button dark" type="button" data-requires-online>
-              <span>Start workers</span><span aria-hidden="true">▶</span>
-            </button>
-            <button id="stop-workers" class="button secondary" type="button" disabled>
-              <span>Stop</span><span aria-hidden="true">■</span>
-            </button>
-          </div>
-          <button class="manual-claim" type="submit" data-requires-online>Claim one manually</button>
-          <div id="current-lease" class="lease-status" aria-live="polite">
-            <span class="lease-dot" aria-hidden="true"></span>
-            <span id="worker-pool-status">Worker pool stopped</span>
-          </div>
-          <div id="worker-activity" class="worker-activity" aria-live="polite"></div>
-          <p class="helper-text">Workers call receive and ACK through the real API. Manual receipts stay only in this tab; expired leases safely return to the queue.</p>
-        </form>
-      </section>
-
-      <section class="scenario-strip" aria-labelledby="scenario-heading">
-        <div class="scenario-intro">
-          <p class="section-label">REAL API PLAYBOOKS</p>
-          <h2 id="scenario-heading">Interactive scenarios</h2>
-          <p>Each playbook performs real queue operations.</p>
+            <div id="burst-status" class="operation-status" role="status" aria-live="polite">Ready to dispatch concurrent requests.</div>
+          </form>
         </div>
-        <button class="scenario-card flash" type="button" data-scenario="flash" data-requires-online>
-          <span class="scenario-dot" aria-hidden="true"></span><span><strong>Flash sale</strong><small>40-message concurrent burst</small></span><span aria-hidden="true">→</span>
-        </button>
-        <button class="scenario-card vip" type="button" data-scenario="vip" data-requires-online>
-          <span class="scenario-dot" aria-hidden="true"></span><span><strong>VIP priority</strong><small>Priority ordering under load</small></span><span aria-hidden="true">→</span>
-        </button>
-        <button class="scenario-card backfill" type="button" data-scenario="backfill" data-requires-online>
-          <span class="scenario-dot" aria-hidden="true"></span><span><strong>Delayed backfill</strong><small>20 jobs become ready later</small></span><span aria-hidden="true">→</span>
-        </button>
-        <button class="scenario-card failure" type="button" data-scenario="failure" data-requires-online>
-          <span class="scenario-dot" aria-hidden="true"></span><span><strong>Worker failure</strong><small>Let a real lease expire</small></span><span aria-hidden="true">→</span>
-        </button>
+
+        <aside class="run-pane" aria-label="Queue consumers and policy">
+          <form id="consumer-form">
+            <div class="section-heading compact-heading">
+              <div>
+                <p class="eyebrow">Consumer</p>
+                <h2>Run simulated workers</h2>
+              </div>
+              <span class="worker-count"><span id="stat-active-workers">—</span> active</span>
+            </div>
+
+            <div class="worker-fields">
+              <div>
+                <label for="worker-count">Workers</label>
+                <input id="worker-count" type="number" min="1" max="12" step="1" value="3" />
+              </div>
+              <div>
+                <label for="processing-time">Process time</label>
+                <div class="input-suffix">
+                  <input id="processing-time" type="number" min="0" max="30" step="0.1" value="0.5" />
+                  <span>sec</span>
+                </div>
+              </div>
+            </div>
+
+            <div id="worker-prompt" class="worker-prompt" role="status" aria-live="polite" hidden>
+              <span class="worker-prompt-arrow" aria-hidden="true">→</span>
+              <span>
+                <strong id="worker-prompt-title">Messages are ready</strong>
+                <small id="worker-prompt-copy">Start workers to move them through the pipeline.</small>
+              </span>
+            </div>
+
+            <div class="worker-actions">
+              <button id="start-workers" class="button dark" type="button" data-requires-online>
+                <span>Start workers</span><span aria-hidden="true">▶</span>
+              </button>
+              <button id="stop-workers" class="button secondary" type="button" disabled>
+                <span>Stop</span><span aria-hidden="true">■</span>
+              </button>
+            </div>
+
+            <div id="current-lease" class="lease-status" aria-live="polite">
+              <span class="lease-dot" aria-hidden="true"></span>
+              <span id="worker-pool-status">Worker pool stopped</span>
+            </div>
+            <div id="worker-activity" class="worker-activity" aria-live="polite"></div>
+
+            <details class="settings-disclosure worker-options">
+              <summary>Advanced worker settings <span>Visibility 15 sec</span></summary>
+              <div class="disclosure-body">
+                <label for="visibility-timeout">Visibility timeout</label>
+                <div class="input-suffix">
+                  <input id="visibility-timeout" type="number" min="0.1" step="0.1" value="15" />
+                  <span>sec</span>
+                </div>
+                <button class="manual-claim" type="submit" data-requires-online>Claim one manually</button>
+                <p class="helper-text">Manual receipts stay in this tab. Expired leases safely return to the queue.</p>
+              </div>
+            </details>
+          </form>
+
+          <details id="queue-settings" class="settings-disclosure queue-settings">
+            <summary>
+              <span>Queue settings</span>
+              <span id="config-badge" class="config-badge">FIFO · standard</span>
+            </summary>
+            <form id="config-form" class="disclosure-body">
+              <label for="queue-order">Processing order</label>
+              <select id="queue-order" name="order">
+                <option value="fifo">FIFO · oldest first</option>
+                <option value="lifo">LIFO · newest first</option>
+              </select>
+
+              <label class="switch-row" for="priority-enabled">
+                <span><strong>Priority ordering</strong><small>Higher values are leased first</small></span>
+                <input id="priority-enabled" name="priority_enabled" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+
+              <div class="policy-footer">
+                <span id="config-summary" class="policy-summary">Loading policy…</span>
+                <button class="button secondary compact" type="submit" data-requires-online><span>Apply policy</span></button>
+              </div>
+            </form>
+          </details>
+
+          <section class="scenario-launcher" aria-label="Guided queue scenario">
+          <label class="sr-only" for="scenario-select">Scenario</label>
+          <select id="scenario-select">
+            <option value="flash">Flash sale</option>
+            <option value="vip">VIP priority</option>
+            <option value="backfill">Delayed backfill</option>
+            <option value="failure">Worker failure</option>
+          </select>
+          <p id="scenario-description">Send 40 messages concurrently using FIFO ordering.</p>
+          <button id="run-scenario" class="button secondary" type="button" data-requires-online>
+            <span>Run scenario</span><span aria-hidden="true">→</span>
+          </button>
+          </section>
+        </aside>
       </section>
 
       <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
@@ -218,11 +219,11 @@
       <section class="pipeline" aria-labelledby="queue-heading">
         <div class="pipeline-heading">
           <div>
-            <p class="section-label">LIVE DATA PLANE</p>
+            <p class="eyebrow">Live data plane</p>
             <h2 id="queue-heading">Message pipeline</h2>
           </div>
           <div class="sync-meta">
-            <span id="config-badge" class="config-badge">FIFO · standard</span>
+            <span class="durability-state"><span aria-hidden="true">●</span> WAL-backed</span>
             <span id="last-updated">Waiting for first sync…</span>
           </div>
         </div>
@@ -230,7 +231,6 @@
         <div class="lane-grid">
           <section class="lane delayed" data-state="delayed" aria-labelledby="lane-title-delayed">
             <header>
-              <span class="lane-index">01</span>
               <div><h3 id="lane-title-delayed">Delayed</h3><p>Waiting for availability</p></div>
               <strong id="lane-count-delayed">—</strong>
             </header>
@@ -241,7 +241,6 @@
 
           <section class="lane ready" data-state="ready" aria-labelledby="lane-title-ready">
             <header>
-              <span class="lane-index">02</span>
               <div><h3 id="lane-title-ready">Ready</h3><p>Eligible for delivery</p></div>
               <strong id="lane-count-ready">—</strong>
             </header>
@@ -252,7 +251,6 @@
 
           <section class="lane in-flight" data-state="in_flight" aria-labelledby="lane-title-in-flight">
             <header>
-              <span class="lane-index">03</span>
               <div><h3 id="lane-title-in-flight">In flight</h3><p>Leased by a worker</p></div>
               <strong id="lane-count-in-flight">—</strong>
             </header>
@@ -263,9 +261,18 @@
 
           <section class="lane completed" data-state="completed" aria-labelledby="lane-title-completed">
             <header>
-              <span class="lane-index">04</span>
               <div><h3 id="lane-title-completed">Completed</h3><p>Durably acknowledged</p></div>
-              <strong id="lane-count-completed">—</strong>
+              <div class="lane-header-actions">
+                <strong id="lane-count-completed">—</strong>
+                <button
+                  id="clear-completed"
+                  class="lane-clear-button"
+                  type="button"
+                  data-idle-label="Clear"
+                  data-requires-online
+                  disabled
+                ><span>Clear</span></button>
+              </div>
             </header>
             <div id="lane-completed" class="lane-content" aria-live="polite">
               <div class="lane-placeholder loading"><span></span><span></span><span></span></div>
@@ -276,8 +283,7 @@
 
       <details id="event-panel" class="event-drawer">
         <summary>
-          <span class="drawer-icon" aria-hidden="true">⌁</span>
-          <span><strong>Under the Hood</strong><small>Sanitized write-ahead log</small></span>
+          <span><strong>Under the hood</strong><small>Sanitized write-ahead log</small></span>
           <span id="event-count" class="event-count">— events</span>
           <span class="drawer-action">Inspect WAL <span aria-hidden="true">⌄</span></span>
         </summary>

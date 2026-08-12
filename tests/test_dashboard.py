@@ -19,7 +19,7 @@ def test_root_serves_dashboard(dashboard_client: TestClient) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "QueueMaxxing" in response.text
-    assert "Durable queue operations console" in response.text
+    assert "Durable queue lab" in response.text
     assert "Independent engineering demo · Not affiliated with Artie" in response.text
     assert "Artie QueueLab" not in response.text
     assert 'id="server-status"' in response.text
@@ -37,6 +37,9 @@ def test_dashboard_contains_real_queue_controls(dashboard_client: TestClient) ->
         "payload-editor",
         "message-priority",
         "message-delay",
+        "mode-single",
+        "mode-burst",
+        "send-one",
         "burst-size",
         "send-burst",
         "burst-status",
@@ -44,10 +47,17 @@ def test_dashboard_contains_real_queue_controls(dashboard_client: TestClient) ->
         "worker-count",
         "visibility-timeout",
         "processing-time",
+        "worker-prompt",
+        "worker-prompt-title",
+        "worker-prompt-copy",
         "start-workers",
         "stop-workers",
         "worker-activity",
         "current-lease",
+        "queue-settings",
+        "scenario-select",
+        "scenario-description",
+        "run-scenario",
         "connection-banner",
         "stat-total",
         "stat-active-workers",
@@ -55,6 +65,7 @@ def test_dashboard_contains_real_queue_controls(dashboard_client: TestClient) ->
         "lane-ready",
         "lane-in-flight",
         "lane-completed",
+        "clear-completed",
         "event-panel",
         "event-list",
     }
@@ -66,13 +77,15 @@ def test_dashboard_contains_real_queue_controls(dashboard_client: TestClient) ->
         'id="visibility-timeout" type="number" min="0.1" step="0.1"'
         in html
     )
-    assert "data-example=\"standard\"" in html
-    assert "data-example=\"priority\"" in html
-    assert "data-example=\"delayed\"" in html
-    assert "data-scenario=\"flash\"" in html
-    assert "data-scenario=\"vip\"" in html
-    assert "data-scenario=\"backfill\"" in html
-    assert "data-scenario=\"failure\"" in html
+    assert '<option value="standard">' in html
+    assert '<option value="priority">' in html
+    assert '<option value="delayed">' in html
+    assert '<option value="flash">' in html
+    assert '<option value="vip">' in html
+    assert '<option value="backfill">' in html
+    assert '<option value="failure">' in html
+    assert 'data-workflow-step="1"' in html
+    assert 'data-workflow-step="4"' in html
     assert 'href="static/styles.css"' in html
     assert 'src="static/app.js"' in html
     assert '<details id="event-panel"' in html
@@ -90,8 +103,13 @@ def test_dashboard_static_assets_are_served(dashboard_client: TestClient) -> Non
     assert ":focus-visible" in stylesheet.text
     assert "overflow: auto" in stylesheet.text
     assert "@media (max-width: 720px)" in stylesheet.text
-    assert ".scenario-strip" in stylesheet.text
+    assert ".scenario-launcher" in stylesheet.text
+    assert ".workflow-steps" in stylesheet.text
+    assert ".status-strip" in stylesheet.text
     assert ".worker-activity" in stylesheet.text
+    assert ".run-pane.has-ready-work" in stylesheet.text
+    assert ".message-card.tone-4" in stylesheet.text
+    assert "worker-callout" in stylesheet.text
 
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
@@ -109,7 +127,13 @@ def test_dashboard_static_assets_are_served(dashboard_client: TestClient) -> Non
     assert 'setConnection("offline")' in script.text
     assert "error.status === 409" in script.text
     assert "stale or its lease expired" in script.text
-    assert "data-example" in script.text
+    assert "setComposerMode" in script.text
+    assert "scenarioCopy" in script.text
+    assert "setWorkflowStep" in script.text
+    assert "updateWorkerGuidance" in script.text
+    assert "tone-${toneIndex}" in script.text
+    assert 'api("/api/messages/completed", { method: "DELETE" })' in script.text
+    assert "Confirm clearing" in script.text
     assert "textContent" in script.text
     assert "innerHTML" not in script.text
 

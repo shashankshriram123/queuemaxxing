@@ -17,18 +17,34 @@ const ui = {
   payload: document.querySelector("#payload-editor"),
   messagePriority: document.querySelector("#message-priority"),
   messageDelay: document.querySelector("#message-delay"),
+  deliverySummary: document.querySelector(".delivery-options summary span"),
   burstSize: document.querySelector("#burst-size"),
+  burstSizeField: document.querySelector("#burst-size-field"),
+  sendOne: document.querySelector("#send-one"),
   sendBurst: document.querySelector("#send-burst"),
   burstStatus: document.querySelector("#burst-status"),
+  composerModes: document.querySelectorAll("[data-composer-mode]"),
+  exampleSelect: document.querySelector("#payload-example"),
+  loadExample: document.querySelector("#load-example"),
   consumerForm: document.querySelector("#consumer-form"),
   workerCount: document.querySelector("#worker-count"),
   visibility: document.querySelector("#visibility-timeout"),
   processingTime: document.querySelector("#processing-time"),
+  runPane: document.querySelector(".run-pane"),
+  workerPrompt: document.querySelector("#worker-prompt"),
+  workerPromptTitle: document.querySelector("#worker-prompt-title"),
+  workerPromptCopy: document.querySelector("#worker-prompt-copy"),
   startWorkers: document.querySelector("#start-workers"),
   stopWorkers: document.querySelector("#stop-workers"),
   workerActivity: document.querySelector("#worker-activity"),
   workerPoolStatus: document.querySelector("#worker-pool-status"),
   currentLease: document.querySelector("#current-lease"),
+  workerOptionsSummary: document.querySelector(".worker-options summary span"),
+  scenarioSelect: document.querySelector("#scenario-select"),
+  scenarioDescription: document.querySelector("#scenario-description"),
+  runScenario: document.querySelector("#run-scenario"),
+  workflowSteps: document.querySelectorAll("[data-workflow-step]"),
+  clearCompleted: document.querySelector("#clear-completed"),
   eventList: document.querySelector("#event-list"),
   eventCount: document.querySelector("#event-count"),
 };
@@ -68,6 +84,12 @@ const examples = {
     delay: 5,
   },
 };
+const scenarioCopy = {
+  flash: "Send 40 messages concurrently using FIFO ordering.",
+  vip: "Mix standard traffic with a final priority-100 checkout.",
+  backfill: "Queue 20 jobs that become available after five seconds.",
+  failure: "Expire a real lease, redeliver it, then acknowledge the retry.",
+};
 
 const browserReceipts = new Map();
 let pollInFlight = false;
@@ -80,6 +102,10 @@ let workerGeneration = 0;
 let workerTasks = [];
 let workerProcessed = 0;
 let scenarioRunning = false;
+let composerMode = "burst";
+let latestStats = null;
+let clearCompletedArmed = false;
+let clearCompletedTimer;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -136,6 +162,50 @@ function formatCountdown(target) {
 
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function setWorkflowStep(step) {
+  ui.workflowSteps.forEach((node) => {
+    const nodeStep = Number(node.dataset.workflowStep);
+    node.classList.toggle("done", nodeStep < step);
+    node.classList.toggle("current", nodeStep === step);
+    if (nodeStep === step) node.setAttribute("aria-current", "step");
+    else node.removeAttribute("aria-current");
+  });
+}
+
+function updateOptionSummaries() {
+  const priority = ui.messagePriority.value || "0";
+  const delay = Number(ui.messageDelay.value);
+  ui.deliverySummary.textContent = `Priority ${priority} · ${delay > 0 ? `${delay} sec delay` : "No delay"}`;
+  ui.workerOptionsSummary.textContent = `Visibility ${ui.visibility.value || "—"} sec`;
+}
+
+function updateBurstLabel() {
+  const count = ui.burstSize.value || "—";
+  const label = `Send ${count}-message burst`;
+  ui.sendBurst.dataset.idleLabel = label;
+  if (ui.sendBurst.dataset.busy !== "true") {
+    ui.sendBurst.querySelector("span:first-child").textContent = label;
+  }
+}
+
+function setComposerMode(mode) {
+  composerMode = mode === "single" ? "single" : "burst";
+  ui.composerModes.forEach((button) => {
+    const active = button.dataset.composerMode === composerMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  const burstMode = composerMode === "burst";
+  ui.burstSizeField.hidden = !burstMode;
+  ui.sendBurst.hidden = !burstMode;
+  ui.sendOne.hidden = burstMode;
+  ui.burstStatus.textContent = burstMode
+    ? "Ready to dispatch concurrent requests."
+    : "Ready to enqueue one durable message.";
+  setWorkflowStep(2);
 }
 
 function parseProducerInput() {
@@ -207,6 +277,8 @@ function setConnection(mode) {
   document.querySelectorAll("[data-requires-online]").forEach((control) => {
     control.disabled = mode !== "live" || control.dataset.busy === "true";
   });
+  updateWorkerGuidance();
+  updateClearCompletedControl();
   return previous;
 }
 
@@ -233,7 +305,54 @@ function notify(message, type = "success", persistent = false) {
   }
 }
 
+function updateWorkerGuidance() {
+  const ready = Number(latestStats?.ready || 0);
+  const delayed = Number(latestStats?.delayed || 0);
+  const queued = ready + delayed;
+  const shouldPrompt = connectionState === "live" && !workersRunning && queued > 0;
+
+  ui.runPane.classList.toggle("has-ready-work", shouldPrompt);
+  ui.workerPrompt.hidden = !shouldPrompt;
+  ui.startWorkers.classList.toggle("attention", shouldPrompt);
+  if (!shouldPrompt) return;
+
+  if (ready > 0) {
+    ui.workerPromptTitle.textContent = `${ready} ready message${ready === 1 ? "" : "s"} waiting`;
+    ui.workerPromptCopy.textContent = "Start workers to process them now.";
+  } else {
+    ui.workerPromptTitle.textContent = `${delayed} delayed message${delayed === 1 ? "" : "s"} queued`;
+    ui.workerPromptCopy.textContent = "Start workers now and they will wait for availability.";
+  }
+  setWorkflowStep(3);
+}
+
+function disarmClearCompleted() {
+  clearTimeout(clearCompletedTimer);
+  clearCompletedArmed = false;
+  ui.clearCompleted.classList.remove("armed");
+  ui.clearCompleted.querySelector("span").textContent = "Clear";
+  ui.clearCompleted.setAttribute("aria-label", "Clear completed messages");
+}
+
+function updateClearCompletedControl() {
+  const completed = Number(latestStats?.completed || 0);
+  if (completed === 0) disarmClearCompleted();
+  if (clearCompletedArmed) {
+    ui.clearCompleted.querySelector("span").textContent = `Confirm ${completed}`;
+    ui.clearCompleted.setAttribute(
+      "aria-label",
+      `Confirm clearing ${completed} completed messages`,
+    );
+  }
+  ui.clearCompleted.disabled = (
+    connectionState !== "live"
+    || completed === 0
+    || ui.clearCompleted.dataset.busy === "true"
+  );
+}
+
 function renderStats(stats) {
+  latestStats = stats;
   document.querySelector("#stat-total").textContent = stats.total;
   document.querySelector("#stat-delayed").textContent = stats.delayed;
   document.querySelector("#stat-ready").textContent = stats.ready;
@@ -241,6 +360,8 @@ function renderStats(stats) {
   document.querySelector("#stat-completed").textContent = stats.completed;
   document.querySelector("#stat-redeliveries").textContent = stats.redelivery_count;
   document.querySelector("#stat-active-workers").textContent = stats.active_worker_count;
+  updateWorkerGuidance();
+  updateClearCompletedControl();
 }
 
 function describeConfig(config) {
@@ -284,6 +405,8 @@ function addLeaseActions(card, message, receipt) {
 
 function createMessageCard(message) {
   const card = element("article", "message-card");
+  const toneIndex = Math.max(0, Number(message.sequence || 1) - 1) % 5;
+  card.classList.add(`tone-${toneIndex}`);
   card.dataset.messageId = message.id;
   const top = element("div", "card-top");
   const id = element("span", "message-id", shortId(message.id));
@@ -457,6 +580,7 @@ function startWorkerPool() {
     return;
   }
   workersRunning = true;
+  updateWorkerGuidance();
   workerGeneration += 1;
   workerProcessed = 0;
   initializeWorkerActivity(settings.count);
@@ -468,6 +592,7 @@ function startWorkerPool() {
   ui.visibility.disabled = true;
   ui.processingTime.disabled = true;
   ui.stopWorkers.disabled = false;
+  setWorkflowStep(4);
   const generation = workerGeneration;
   workerTasks = Array.from({ length: settings.count }, (_, index) => simulatedWorkerLoop(index, generation, settings));
   notify(`${settings.count} simulated workers started against the real receive/ACK API.`);
@@ -632,6 +757,7 @@ ui.enqueueForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ payload, priority, delay_seconds: delay }),
     });
     notify(`Message ${shortId(message.id)} durably enqueued as ${message.state}.`);
+    setWorkflowStep(3);
     await refreshAll();
   } catch (error) {
     notify(error.message || "Unable to enqueue the message.", "error");
@@ -653,6 +779,7 @@ ui.sendBurst.addEventListener("click", async () => {
     } else {
       notify(`${count} concurrent messages durably enqueued.`);
     }
+    setWorkflowStep(3);
     await refreshAll();
   } catch (error) {
     ui.burstStatus.textContent = "Burst stopped before completion.";
@@ -690,14 +817,44 @@ ui.consumerForm.addEventListener("submit", async (event) => {
 ui.startWorkers.addEventListener("click", startWorkerPool);
 ui.stopWorkers.addEventListener("click", stopWorkerPool);
 
+ui.clearCompleted.addEventListener("click", async () => {
+  const completed = Number(latestStats?.completed || 0);
+  if (!clearCompletedArmed) {
+    clearCompletedArmed = true;
+    ui.clearCompleted.classList.add("armed");
+    updateClearCompletedControl();
+    clearCompletedTimer = setTimeout(() => {
+      disarmClearCompleted();
+      updateClearCompletedControl();
+    }, 8000);
+    return;
+  }
+
+  clearTimeout(clearCompletedTimer);
+  setBusy(ui.clearCompleted, true, "Clearing…");
+  try {
+    const result = await api("/api/messages/completed", { method: "DELETE" });
+    disarmClearCompleted();
+    notify(
+      result.cleared === 1
+        ? "Cleared 1 completed message."
+        : `Cleared ${result.cleared} completed messages.`,
+    );
+    await refreshAll();
+  } catch (error) {
+    disarmClearCompleted();
+    notify(error.message || `Unable to clear ${completed} completed messages.`, "error");
+  } finally {
+    setBusy(ui.clearCompleted, false, "");
+    updateClearCompletedControl();
+  }
+});
+
 async function runScenario(name, button) {
   if (scenarioRunning) return;
   scenarioRunning = true;
-  document.querySelectorAll("[data-scenario]").forEach((scenarioButton) => {
-    scenarioButton.dataset.busy = "true";
-    scenarioButton.disabled = true;
-  });
-  button.setAttribute("aria-busy", "true");
+  ui.scenarioSelect.disabled = true;
+  setBusy(button, true, "Running…");
   try {
     if (name === "flash") {
       await updateQueueConfig("fifo", false);
@@ -760,33 +917,50 @@ async function runScenario(name, button) {
       });
       notify(`Lease expired, message ${shortId(retry.message.id)} was redelivered on attempt ${retry.message.delivery_attempts}, then ACKed.`);
     }
+    setWorkflowStep(4);
     await refreshAll();
   } catch (error) {
     notify(error.message || "The scenario could not complete.", "error");
   } finally {
     scenarioRunning = false;
-    document.querySelectorAll("[data-scenario]").forEach((scenarioButton) => {
-      scenarioButton.dataset.busy = "false";
-      scenarioButton.disabled = connectionState !== "live";
-      scenarioButton.setAttribute("aria-busy", "false");
-    });
+    ui.scenarioSelect.disabled = false;
+    setBusy(button, false, "");
   }
 }
 
-document.querySelectorAll("[data-scenario]").forEach((button) => {
-  button.addEventListener("click", () => runScenario(button.dataset.scenario, button));
+ui.scenarioSelect.addEventListener("change", () => {
+  ui.scenarioDescription.textContent = scenarioCopy[ui.scenarioSelect.value];
 });
 
-document.querySelectorAll("[data-example]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const example = examples[button.dataset.example];
-    ui.payload.value = JSON.stringify(example.payload, null, 2);
-    ui.messagePriority.value = example.priority;
-    ui.messageDelay.value = example.delay;
-    ui.payload.focus();
-    notify("Example loaded. Review it, then enqueue through the real API.");
+ui.runScenario.addEventListener("click", () => {
+  runScenario(ui.scenarioSelect.value, ui.runScenario);
+});
+
+ui.loadExample.addEventListener("click", () => {
+  const example = examples[ui.exampleSelect.value];
+  ui.payload.value = JSON.stringify(example.payload, null, 2);
+  ui.messagePriority.value = example.priority;
+  ui.messageDelay.value = example.delay;
+  updateOptionSummaries();
+  ui.payload.focus();
+  notify("Example loaded. Review it, then enqueue through the real API.");
+});
+
+ui.composerModes.forEach((button) => {
+  button.addEventListener("click", () => setComposerMode(button.dataset.composerMode));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const nextMode = button.dataset.composerMode === "single" ? "burst" : "single";
+    setComposerMode(nextMode);
+    document.querySelector(`[data-composer-mode="${nextMode}"]`).focus();
   });
 });
+
+ui.burstSize.addEventListener("input", updateBurstLabel);
+ui.messagePriority.addEventListener("input", updateOptionSummaries);
+ui.messageDelay.addEventListener("input", updateOptionSummaries);
+ui.visibility.addEventListener("input", updateOptionSummaries);
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshAll();
@@ -803,6 +977,11 @@ function showDirectFileNotice() {
   ui.lastUpdated.textContent = "Server required";
   renderOfflineLanes();
 }
+
+updateOptionSummaries();
+updateBurstLabel();
+setComposerMode("burst");
+ui.scenarioDescription.textContent = scenarioCopy[ui.scenarioSelect.value];
 
 if (window.location.protocol === "file:") {
   showDirectFileNotice();

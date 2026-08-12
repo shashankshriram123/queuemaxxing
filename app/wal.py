@@ -25,6 +25,7 @@ EVENT_TYPES: Final = frozenset(
         "message_claimed",
         "message_acked",
         "message_nacked",
+        "completed_messages_cleared",
         "lease_expired",
     }
 )
@@ -49,6 +50,7 @@ EVENT_FIELDS: Final = {
     },
     "message_acked": {"message_id", "completed_at"},
     "message_nacked": {"message_id", "state", "available_at"},
+    "completed_messages_cleared": {"message_ids"},
     "lease_expired": {"message_id", "receipt_handle", "available_at"},
 }
 
@@ -189,6 +191,17 @@ def validate_event_data(event_type: str, data: object) -> dict[str, Any]:
         if data.get("state") not in {"ready", "delayed"}:
             raise WALCorruptionError("NACK event has an invalid state")
         _parse_timestamp(data.get("available_at"), "available_at")
+    elif event_type == "completed_messages_cleared":
+        message_ids = data.get("message_ids")
+        if (
+            not isinstance(message_ids, list)
+            or not message_ids
+            or any(not isinstance(message_id, str) or not message_id for message_id in message_ids)
+            or len(set(message_ids)) != len(message_ids)
+        ):
+            raise WALCorruptionError(
+                "completed_messages_cleared message_ids must be distinct non-empty strings"
+            )
     elif event_type == "lease_expired":
         _require_string(data, "message_id")
         _require_string(data, "receipt_handle")

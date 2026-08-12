@@ -117,6 +117,30 @@ def test_acked_message_remains_completed_after_restart(tmp_path: Path) -> None:
         second.close()
 
 
+def test_cleared_completed_messages_stay_removed_after_restart(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "queue.wal"
+    first = QueueEngine.open_durable(path)
+    completed = first.enqueue({"name": "done"})
+    retained = first.enqueue({"name": "ready"})
+    lease = require_message(first.receive("worker"))
+    assert lease.id == completed.id
+    assert lease.receipt_handle is not None
+    first.ack(completed.id, lease.receipt_handle)
+    assert first.clear_completed() == 1
+    first.close()
+
+    second = QueueEngine.open_durable(path)
+    try:
+        assert [message.id for message in second.messages()] == [retained.id]
+        next_message = second.enqueue({"name": "next"})
+        assert next_message.sequence == 3
+        assert "completed_messages_cleared" in event_types(path)
+    finally:
+        second.close()
+
+
 def test_immediate_nack_recovers_ready(tmp_path: Path) -> None:
     path = tmp_path / "queue.wal"
     clock = ManualClock()

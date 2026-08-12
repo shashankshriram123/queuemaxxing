@@ -116,6 +116,10 @@ class ReceiveResponse(BaseModel):
     message: LeasedMessageResponse | None
 
 
+class ClearCompletedResponse(BaseModel):
+    cleared: int
+
+
 class StatsResponse(BaseModel):
     total: int
     delayed: int

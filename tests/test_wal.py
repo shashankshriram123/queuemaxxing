@@ -304,3 +304,25 @@ def test_ack_append_failure_preserves_active_lease(
     assert unchanged.receipt_handle == lease.receipt_handle
     assert unchanged.leased_by == "worker"
     engine.close()
+
+
+def test_clear_completed_append_failure_preserves_completed_messages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wal = WriteAheadLog(tmp_path / "queue.wal")
+    engine = QueueEngine(wal=wal)
+    message = engine.enqueue({"name": "done"})
+    lease = engine.receive("worker")
+    assert lease is not None
+    assert lease.receipt_handle is not None
+    engine.ack(message.id, lease.receipt_handle)
+
+    def fail_append(*_: object, **__: object) -> None:
+        raise WALWriteError("simulated clear append failure")
+
+    monkeypatch.setattr(wal, "append", fail_append)
+    with pytest.raises(WALWriteError, match="simulated clear"):
+        engine.clear_completed()
+
+    assert engine.get_message(message.id).state.value == "completed"
+    engine.close()
