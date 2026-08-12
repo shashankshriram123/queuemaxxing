@@ -1,0 +1,29 @@
+# Virtual environments
+.venv/
+
+# Python caches and build output
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test and coverage caches
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Queue persistence and local runtime data
+*.wal
+*.wal.*
+data/*
+!data/.gitkeep
+
+# Operating system files
+.DS_Store

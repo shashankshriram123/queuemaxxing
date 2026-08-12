@@ -1,0 +1,1 @@
+"""Queuemaxxing FastAPI application package."""
