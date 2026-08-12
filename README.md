@@ -4,6 +4,17 @@ Queuemaxxing is a FastAPI service that will power the Artie QueueLab durable
 queue demo. Step 1 provides the application scaffold, health endpoint, and a
 minimal placeholder page.
 
+## Concurrency boundary
+
+Each `QueueEngine` protects its state with a reentrant lock. Many producer and
+consumer threads—and concurrent HTTP clients served by one Python process—can
+use the same engine safely. Public reads return deep snapshots so callers cannot
+mutate stored messages or nested payloads without going through the engine.
+
+Multiple independent server processes sharing an in-memory engine or the same
+data directory are not supported. A later persistence phase will add exclusive
+data-directory ownership for that boundary.
+
 ## Requirements
 
 - Python 3.11 or newer

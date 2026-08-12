@@ -42,6 +42,10 @@ def require_message(message: Message | None) -> Message:
     return message
 
 
+def stored(engine: QueueEngine, message: Message) -> Message:
+    return engine.get_message(message.id)
+
+
 def test_receive_chooses_the_correct_next_message(clock: FakeClock) -> None:
     engine = QueueEngine(
         QueueConfig(order=QueueOrder.FIFO, priority_enabled=True), clock
@@ -50,7 +54,7 @@ def test_receive_chooses_the_correct_next_message(clock: FakeClock) -> None:
     expected = engine.enqueue({"name": "old-high"}, priority=10)
     engine.enqueue({"name": "new-high"}, priority=10)
 
-    assert engine.receive("worker-1") is expected
+    assert require_message(engine.receive("worker-1")).id == expected.id
 
 
 def test_receive_creates_an_active_lease(
@@ -62,13 +66,13 @@ def test_receive_creates_an_active_lease(
         engine.receive("  worker-7  ", visibility_timeout_seconds=12)
     )
 
-    assert received is message
-    assert message.state is MessageState.IN_FLIGHT
-    assert message.leased_by == "worker-7"
-    assert isinstance(message.receipt_handle, str)
-    assert len(message.receipt_handle) >= 32
-    assert message.lease_expires_at == clock.current + timedelta(seconds=12)
-    assert message.delivery_attempts == 1
+    assert received.id == message.id
+    assert received.state is MessageState.IN_FLIGHT
+    assert received.leased_by == "worker-7"
+    assert isinstance(received.receipt_handle, str)
+    assert len(received.receipt_handle) >= 32
+    assert received.lease_expires_at == clock.current + timedelta(seconds=12)
+    assert received.delivery_attempts == 1
     assert engine.ready_messages() == []
 
 
@@ -91,12 +95,13 @@ def test_ack_completes_message_and_clears_active_lease(
 
     result = engine.ack(message.id, receipt_handle)
 
-    assert result is message
-    assert message.state is MessageState.COMPLETED
-    assert message.completed_at == clock.current
-    assert message.leased_by is None
-    assert message.receipt_handle is None
-    assert message.lease_expires_at is None
+    assert result.id == message.id
+    assert result.state is MessageState.COMPLETED
+    assert result.completed_at == clock.current
+    assert result.leased_by is None
+    assert result.receipt_handle is None
+    assert result.lease_expires_at is None
+    assert stored(engine, message) == result
 
 
 def test_completed_message_is_never_received_again(engine: QueueEngine) -> None:
@@ -119,13 +124,13 @@ def test_nack_without_delay_returns_message_to_ready(engine: QueueEngine) -> Non
 
     result = engine.nack(message.id, receipt_handle)
 
-    assert result is message
-    assert message.state is MessageState.READY
-    assert message.delivery_attempts == 1
-    assert message.leased_by is None
-    assert message.receipt_handle is None
-    assert message.lease_expires_at is None
-    assert engine.peek_next() is message
+    assert result.id == message.id
+    assert result.state is MessageState.READY
+    assert result.delivery_attempts == 1
+    assert result.leased_by is None
+    assert result.receipt_handle is None
+    assert result.lease_expires_at is None
+    assert require_message(engine.peek_next()).id == message.id
 
 
 def test_nack_with_retry_delay_moves_message_to_delayed(
@@ -138,15 +143,16 @@ def test_nack_with_retry_delay_moves_message_to_delayed(
 
     engine.nack(message.id, receipt_handle, retry_delay_seconds=8)
 
-    assert message.state is MessageState.DELAYED
-    assert message.available_at == clock.current + timedelta(seconds=8)
-    assert message.delivery_attempts == 1
+    retry = stored(engine, message)
+    assert retry.state is MessageState.DELAYED
+    assert retry.available_at == clock.current + timedelta(seconds=8)
+    assert retry.delivery_attempts == 1
     assert engine.receive("worker-2") is None
 
     clock.advance(8)
 
-    assert engine.peek_next() is message
-    assert message.state is MessageState.READY
+    assert require_message(engine.peek_next()).id == message.id
+    assert stored(engine, message).state is MessageState.READY
 
 
 def test_expired_lease_returns_message_to_ready(
@@ -158,11 +164,12 @@ def test_expired_lease_returns_message_to_ready(
     clock.advance(5)
 
     assert engine.requeue_expired_leases() == 1
-    assert message.state is MessageState.READY
-    assert message.delivery_attempts == 1
-    assert message.leased_by is None
-    assert message.receipt_handle is None
-    assert message.lease_expires_at is None
+    current = stored(engine, message)
+    assert current.state is MessageState.READY
+    assert current.delivery_attempts == 1
+    assert current.leased_by is None
+    assert current.receipt_handle is None
+    assert current.lease_expires_at is None
 
 
 def test_redelivery_increments_attempts_and_creates_a_new_receipt(
@@ -178,11 +185,11 @@ def test_redelivery_increments_attempts_and_creates_a_new_receipt(
     clock.advance(5)
     second_delivery = require_message(engine.receive("worker-2"))
 
-    assert second_delivery is message
-    assert message.delivery_attempts == 2
-    assert message.receipt_handle is not None
-    assert message.receipt_handle != first_receipt
-    assert message.leased_by == "worker-2"
+    assert second_delivery.id == message.id
+    assert second_delivery.delivery_attempts == 2
+    assert second_delivery.receipt_handle is not None
+    assert second_delivery.receipt_handle != first_receipt
+    assert second_delivery.leased_by == "worker-2"
 
 
 def test_old_receipt_cannot_ack_a_newer_lease(
@@ -273,8 +280,8 @@ def test_peek_does_not_lease_or_mutate_message(engine: QueueEngine) -> None:
     message = engine.enqueue({"name": "job"})
     before = deepcopy(message)
 
-    assert engine.peek() is message
-    assert engine.peek_next() is message
+    assert require_message(engine.peek()).id == message.id
+    assert require_message(engine.peek_next()).id == message.id
     assert message == before
     assert message.state is MessageState.READY
     assert message.delivery_attempts == 0
@@ -305,7 +312,10 @@ def test_ordering_is_preserved_across_nack_and_redelivery(
     engine.nack(selected.id, receipt_handle)
 
     assert [message.payload["name"] for message in engine.ready_messages()] == names
-    assert {first.state, second.state} == {MessageState.READY}
+    assert {
+        stored(engine, first).state,
+        stored(engine, second).state,
+    } == {MessageState.READY}
 
 
 def test_priority_ordering_is_preserved_after_lease_expiration(
@@ -321,5 +331,5 @@ def test_priority_ordering_is_preserved_after_lease_expiration(
 
     redelivered = require_message(engine.receive("worker-2"))
 
-    assert redelivered is high
+    assert redelivered.id == high.id
     assert redelivered.delivery_attempts == 2

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 import secrets
+import threading
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -70,7 +71,7 @@ def _validate_json_value(value: object, path: str = "payload") -> None:
 
 
 class QueueEngine:
-    """Own messages and determine which eligible message should run next."""
+    """Own messages and atomically coordinate concurrent producer/consumer threads."""
 
     def __init__(self, config: QueueConfig, clock: Clock | None = None) -> None:
         if not isinstance(config, QueueConfig):
@@ -80,6 +81,7 @@ class QueueEngine:
         self._clock = clock or _utc_now
         self._messages: dict[str, Message] = {}
         self._last_sequence = 0
+        self._lock = threading.RLock()
 
     def enqueue(
         self,
@@ -99,37 +101,66 @@ class QueueEngine:
         if delay_seconds < 0:
             raise ValueError("delay_seconds cannot be negative")
 
-        _validate_json_value(payload)
-        now = self._now()
-        self._last_sequence += 1
-        message = Message(
-            id=str(uuid.uuid4()),
-            payload=copy.deepcopy(payload),
-            priority=priority,
-            sequence=self._last_sequence,
-            created_at=now,
-            available_at=now + timedelta(seconds=delay_seconds),
-            state=MessageState.DELAYED if delay_seconds > 0 else MessageState.READY,
-        )
-        self._messages[message.id] = message
-        return message
+        payload_copy = copy.deepcopy(payload)
+        _validate_json_value(payload_copy)
+
+        with self._lock:
+            now = self._now()
+            self._last_sequence += 1
+            message = Message(
+                id=str(uuid.uuid4()),
+                payload=payload_copy,
+                priority=priority,
+                sequence=self._last_sequence,
+                created_at=now,
+                available_at=now + timedelta(seconds=delay_seconds),
+                state=(
+                    MessageState.DELAYED
+                    if delay_seconds > 0
+                    else MessageState.READY
+                ),
+            )
+            self._messages[message.id] = message
+            return self._snapshot_locked(message)
 
     def ready_messages(self) -> list[Message]:
         """Return all eligible messages in their processing order."""
 
-        self._refresh_time_based_states(self._now())
-        return self._ordered_ready_messages()
+        with self._lock:
+            self._refresh_time_based_states_locked(self._now())
+            return [
+                self._snapshot_locked(message)
+                for message in self._ordered_ready_messages_locked()
+            ]
 
     def peek_next(self) -> Message | None:
         """Return the next eligible message without removing or claiming it."""
 
-        ready = self.ready_messages()
-        return ready[0] if ready else None
+        with self._lock:
+            self._refresh_time_based_states_locked(self._now())
+            ready = self._ordered_ready_messages_locked()
+            return self._snapshot_locked(ready[0]) if ready else None
 
     def peek(self) -> Message | None:
         """Alias for :meth:`peek_next` with the same non-destructive behavior."""
 
-        return self.peek_next()
+        with self._lock:
+            return self.peek_next()
+
+    def get_message(self, message_id: str) -> Message:
+        """Return a defensive snapshot of one message's current state."""
+
+        with self._lock:
+            self._refresh_time_based_states_locked(self._now())
+            return self._snapshot_locked(self._get_message_locked(message_id))
+
+    def messages(self) -> list[Message]:
+        """Return defensive snapshots of all messages in sequence order."""
+
+        with self._lock:
+            self._refresh_time_based_states_locked(self._now())
+            ordered = sorted(self._messages.values(), key=lambda item: item.sequence)
+            return [self._snapshot_locked(message) for message in ordered]
 
     def receive(
         self,
@@ -142,32 +173,34 @@ class QueueEngine:
         visibility_timeout = self._validate_visibility_timeout(
             visibility_timeout_seconds
         )
-        now = self._now()
-        self._refresh_time_based_states(now)
-        ready = self._ordered_ready_messages()
-        if not ready:
-            return None
+        with self._lock:
+            now = self._now()
+            self._refresh_time_based_states_locked(now)
+            ready = self._ordered_ready_messages_locked()
+            if not ready:
+                return None
 
-        message = ready[0]
-        message.state = MessageState.IN_FLIGHT
-        message.delivery_attempts += 1
-        message.leased_by = normalized_worker_id
-        message.receipt_handle = secrets.token_urlsafe(32)
-        message.lease_expires_at = now + timedelta(seconds=visibility_timeout)
-        return message
+            message = ready[0]
+            message.state = MessageState.IN_FLIGHT
+            message.delivery_attempts += 1
+            message.leased_by = normalized_worker_id
+            message.receipt_handle = secrets.token_urlsafe(32)
+            message.lease_expires_at = now + timedelta(seconds=visibility_timeout)
+            return self._snapshot_locked(message)
 
     def ack(self, message_id: str, receipt_handle: str) -> Message:
         """Complete a message using the receipt for its active lease."""
 
-        now = self._now()
-        self._refresh_time_based_states(now)
-        message = self._get_message(message_id)
-        self._validate_active_lease(message, receipt_handle)
+        with self._lock:
+            now = self._now()
+            message = self._get_message_locked(message_id)
+            self._refresh_time_based_states_locked(now)
+            self._validate_active_lease(message, receipt_handle)
 
-        message.state = MessageState.COMPLETED
-        message.completed_at = now
-        self._clear_active_lease(message)
-        return message
+            message.state = MessageState.COMPLETED
+            message.completed_at = now
+            self._clear_active_lease_locked(message)
+            return self._snapshot_locked(message)
 
     def nack(
         self,
@@ -178,28 +211,30 @@ class QueueEngine:
         """Release an active lease immediately or after a retry delay."""
 
         retry_delay = self._validate_retry_delay(retry_delay_seconds)
-        now = self._now()
-        self._refresh_time_based_states(now)
-        message = self._get_message(message_id)
-        self._validate_active_lease(message, receipt_handle)
+        with self._lock:
+            now = self._now()
+            message = self._get_message_locked(message_id)
+            self._refresh_time_based_states_locked(now)
+            self._validate_active_lease(message, receipt_handle)
 
-        message.available_at = now + timedelta(seconds=retry_delay)
-        message.state = (
-            MessageState.DELAYED if retry_delay > 0 else MessageState.READY
-        )
-        self._clear_active_lease(message)
-        return message
+            message.available_at = now + timedelta(seconds=retry_delay)
+            message.state = (
+                MessageState.DELAYED if retry_delay > 0 else MessageState.READY
+            )
+            self._clear_active_lease_locked(message)
+            return self._snapshot_locked(message)
 
     def requeue_expired_leases(self) -> int:
         """Return expired in-flight messages to ready and report the count."""
 
-        return self._requeue_expired_leases_at(self._now())
+        with self._lock:
+            return self._requeue_expired_leases_locked(self._now())
 
-    def _refresh_time_based_states(self, now: datetime) -> None:
-        self._requeue_expired_leases_at(now)
-        self._promote_delayed_at(now)
+    def _refresh_time_based_states_locked(self, now: datetime) -> None:
+        self._requeue_expired_leases_locked(now)
+        self._promote_delayed_locked(now)
 
-    def _promote_delayed_at(self, now: datetime) -> None:
+    def _promote_delayed_locked(self, now: datetime) -> None:
         for message in self._messages.values():
             if (
                 message.state is MessageState.DELAYED
@@ -207,7 +242,7 @@ class QueueEngine:
             ):
                 message.state = MessageState.READY
 
-    def _requeue_expired_leases_at(self, now: datetime) -> int:
+    def _requeue_expired_leases_locked(self, now: datetime) -> int:
         expired_count = 0
         for message in self._messages.values():
             if (
@@ -216,11 +251,11 @@ class QueueEngine:
                 and message.lease_expires_at <= now
             ):
                 message.state = MessageState.READY
-                self._clear_active_lease(message)
+                self._clear_active_lease_locked(message)
                 expired_count += 1
         return expired_count
 
-    def _ordered_ready_messages(self) -> list[Message]:
+    def _ordered_ready_messages_locked(self) -> list[Message]:
         ready = [
             message
             for message in self._messages.values()
@@ -237,7 +272,7 @@ class QueueEngine:
         )
         return priority, sequence
 
-    def _get_message(self, message_id: str) -> Message:
+    def _get_message_locked(self, message_id: str) -> Message:
         try:
             return self._messages[message_id]
         except KeyError as exc:
@@ -259,10 +294,14 @@ class QueueEngine:
             )
 
     @staticmethod
-    def _clear_active_lease(message: Message) -> None:
+    def _clear_active_lease_locked(message: Message) -> None:
         message.leased_by = None
         message.receipt_handle = None
         message.lease_expires_at = None
+
+    @staticmethod
+    def _snapshot_locked(message: Message) -> Message:
+        return copy.deepcopy(message)
 
     @staticmethod
     def _validate_worker_id(worker_id: str) -> str:

@@ -103,8 +103,8 @@ def test_delayed_message_becomes_ready_after_clock_advances(clock: FakeClock) ->
 
     clock.advance(10)
 
-    assert engine.ready_messages() == [message]
-    assert message.state is MessageState.READY
+    assert [ready.id for ready in engine.ready_messages()] == [message.id]
+    assert engine.get_message(message.id).state is MessageState.READY
 
 
 @pytest.mark.parametrize(
@@ -152,8 +152,10 @@ def test_peek_does_not_remove_or_mutate_selected_message(clock: FakeClock) -> No
     first_peek = engine.peek_next()
     second_peek = engine.peek_next()
 
-    assert first_peek is message
-    assert second_peek is message
+    assert first_peek is not message
+    assert second_peek is not message
+    assert first_peek == message
+    assert second_peek == message
     assert message == before
     assert len(engine.ready_messages()) == 2
 
